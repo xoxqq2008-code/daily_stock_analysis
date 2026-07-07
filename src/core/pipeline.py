@@ -57,6 +57,11 @@ from src.services.daily_market_context import (
     DailyMarketContextService,
     format_daily_market_context_prompt_section,
 )
+from src.services.blogger_analysis_service import (
+    BloggerAnalysisService,
+    get_blogger_service,
+    reload_blogger_service,
+)
 from src.services.social_sentiment_service import SocialSentimentService
 from src.services.intelligence_service import IntelligenceService
 from src.services.analysis_context_builder import (
@@ -262,6 +267,27 @@ class StockAnalysisPipeline:
             logger.info("搜索服务已启用")
         else:
             logger.warning("搜索服务未启用（未配置搜索能力）")
+
+        # 初始化 X 博主观点分析服务（可选，基于 portfolio.json 和 blogger_cache.json）
+        try:
+            portfolio_path = os.getenv("PORTFOLIO_JSON_PATH")
+            blogger_cache_path = os.getenv("BLOGGER_CONFIG_PATH")
+            self.blogger_service = get_blogger_service(
+                portfolio_path=portfolio_path,
+                blogger_cache_path=blogger_cache_path,
+            )
+            if self.blogger_service.influencers:
+                logger.info(
+                    "X 博主分析服务已启用: %s",
+                    ", ".join(i.get("display_name", i.get("handle", "")) for i in self.blogger_service.influencers),
+                )
+        except Exception as exc:
+            logger.warning(
+                "X 博主分析服务初始化失败，将跳过博主观点分析: %s",
+                exc,
+                exc_info=True,
+            )
+            self.blogger_service = None
 
         # 初始化社交舆情服务（仅美股，可选）
         try:
@@ -606,6 +632,19 @@ class StockAnalysisPipeline:
                 except Exception as e:
                     logger.warning(f"{stock_name}({code}) Social sentiment fetch failed: {e}")
 
+            # Step 4.6: X 博主观点注入（Serenity, 美研芒格君等）
+            if self.blogger_service is not None:
+                try:
+                    blogger_context = self.blogger_service.get_blogger_context(code)
+                    if blogger_context:
+                        logger.info(f"{stock_name}({code}) X 博主观点已加载")
+                        if news_context:
+                            news_context = news_context + "\n\n" + blogger_context
+                        else:
+                            news_context = blogger_context
+                except Exception as e:
+                    logger.warning(f"{stock_name}({code}) X 博主观点加载失败: {e}")
+
             if persisted_intelligence_context:
                 news_context = (
                     f"{news_context}\n\n{persisted_intelligence_context}"
@@ -835,7 +874,49 @@ class StockAnalysisPipeline:
             logger.error(f"{stock_name}({code}) 分析失败: {e}")
             logger.exception(f"{stock_name}({code}) 详细错误信息:")
             return None
-    
+
+    def _resolve_stock_portfolio_context(
+        self,
+        code: str,
+        portfolio_context: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Extract the per-stock holding/watchlist context from portfolio.json.
+
+        If the pipeline-level portfolio_context contains a flat list of holdings
+        and watchlist (from main.py), resolve the entry matching ``code`` and
+        enrich it with current price / unrealized PnL when available.
+        """
+        if not code or not isinstance(portfolio_context, dict):
+            return None
+
+        code_norm = code.upper().strip()
+        holdings = portfolio_context.get("holdings") or []
+        watchlist = portfolio_context.get("watchlist") or []
+        if not isinstance(holdings, list):
+            holdings = []
+        if not isinstance(watchlist, list):
+            watchlist = []
+
+        for h in holdings:
+            if not isinstance(h, dict):
+                continue
+            if str(h.get("symbol", "")).upper().strip() == code_norm:
+                result = dict(h)
+                result["cost_method"] = h.get("cost_method", "avg")
+                result["has_position"] = True
+                return result
+
+        for w in watchlist:
+            if not isinstance(w, dict):
+                continue
+            if str(w.get("symbol", "")).upper().strip() == code_norm:
+                result = dict(w)
+                result["watchlist"] = True
+                result["has_position"] = False
+                return result
+
+        return None
+
     def _enhance_context(
         self,
         context: Dict[str, Any],
@@ -849,9 +930,9 @@ class StockAnalysisPipeline:
     ) -> Dict[str, Any]:
         """
         增强分析上下文
-        
+
         将实时行情、筹码分布、趋势分析结果、股票名称添加到上下文中
-        
+
         Args:
             context: 原始上下文
             realtime_quote: 实时行情数据（UnifiedRealtimeQuote 或 None）
@@ -859,20 +940,25 @@ class StockAnalysisPipeline:
             trend_result: 趋势分析结果
             stock_name: 股票名称
             market_phase_context: 已构建的市场阶段上下文，用于标记盘中 partial bar
-            
+
         Returns:
             增强后的上下文
         """
         enhanced = context.copy()
         enhanced["report_language"] = normalize_report_language(getattr(self.config, "report_language", "zh"))
-        
+
         # 添加股票名称
         if stock_name:
             enhanced['stock_name'] = stock_name
         elif realtime_quote and getattr(realtime_quote, 'name', None):
             enhanced['stock_name'] = realtime_quote.name
-        if isinstance(portfolio_context, dict):
-            enhanced["portfolio_context"] = dict(portfolio_context)
+
+        # 注入当前股票相关的持仓/关注上下文（而非完整组合）
+        code = enhanced.get("code", "")
+        if isinstance(portfolio_context, dict) and code:
+            stock_portfolio = self._resolve_stock_portfolio_context(code, portfolio_context)
+            if stock_portfolio:
+                enhanced["portfolio_context"] = stock_portfolio
 
         # 将运行时搜索窗口透传给 analyzer，避免与全局配置重新读取产生窗口不一致
         enhanced['news_window_days'] = getattr(self.search_service, "news_window_days", 3)
@@ -1265,6 +1351,20 @@ class StockAnalysisPipeline:
                         logger.info(f"[{code}] Agent mode: social sentiment data injected into news_context")
                 except Exception as e:
                     logger.warning(f"[{code}] Agent mode: social sentiment fetch failed: {e}")
+
+            # Agent path: inject X blogger opinions as additional context
+            if self.blogger_service is not None:
+                try:
+                    blogger_context = self.blogger_service.get_blogger_context(code)
+                    if blogger_context:
+                        existing = initial_context.get("news_context")
+                        if existing:
+                            initial_context["news_context"] = existing + "\n\n" + blogger_context
+                        else:
+                            initial_context["news_context"] = blogger_context
+                        logger.info(f"[{code}] Agent mode: X blogger context injected into news_context")
+                except Exception as e:
+                    logger.warning(f"[{code}] Agent mode: X blogger context fetch failed: {e}")
 
             persisted_intelligence_context = self._load_persisted_intelligence_context(
                 code=code,

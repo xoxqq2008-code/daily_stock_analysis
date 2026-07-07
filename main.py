@@ -673,6 +673,22 @@ def run_full_analysis(
         if stock_codes is None:
             config.refresh_stock_list()
 
+        # Load user portfolio / watchlist context from portfolio.json if present
+        portfolio_context = None
+        portfolio_path = os.getenv("PORTFOLIO_JSON_PATH")
+        if portfolio_path and Path(portfolio_path).exists():
+            try:
+                from src.services.blogger_analysis_service import BloggerAnalysisService
+
+                blogger_svc = BloggerAnalysisService(portfolio_path=portfolio_path)
+                portfolio_context = {
+                    "source": "portfolio.json",
+                    "holdings": blogger_svc.get_stock_positions(),
+                    "watchlist": blogger_svc.get_watchlist(),
+                }
+                logger.info("已加载 portfolio.json 持仓/关注配置")
+            except Exception as exc:
+                logger.warning("加载 portfolio.json 失败: %s", exc)
         # Issue #373: Trading day filter (per-stock, per-market)
         effective_codes = stock_codes if stock_codes is not None else config.stock_list
         filtered_codes, effective_region, should_skip = _compute_trading_day_filter(
@@ -738,6 +754,7 @@ def run_full_analysis(
             save_context_snapshot=save_context_snapshot,
             daily_market_context_enabled=should_use_daily_market_context,
             daily_market_context_allow_generate=should_use_daily_market_context,
+            portfolio_context=portfolio_context,
         )
         if should_use_daily_market_context:
             # Prompt-side context can reuse historical summaries, while full-merge

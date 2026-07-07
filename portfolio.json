@@ -1,0 +1,84 @@
+{
+  "holdings": [
+    {
+      "symbol": "MRVL",
+      "quantity": 1,
+      "avg_cost": 280.0,
+      "market": "us",
+      "currency": "USD"
+    },
+    {
+      "symbol": "SPCX",
+      "quantity": 1,
+      "avg_cost": 159.79,
+      "market": "us",
+      "currency": "USD"
+    },
+    {
+      "symbol": "TQQQ",
+      "quantity": 1,
+      "avg_cost": 84.8,
+      "market": "us",
+      "currency": "USD"
+    },
+    {
+      "symbol": "DRAM",
+      "quantity": 1,
+      "avg_cost": 70.0,
+      "market": "us",
+      "currency": "USD"
+    },
+    {
+      "symbol": "NOK",
+      "quantity": 3,
+      "avg_cost": 14.063,
+      "market": "us",
+      "currency": "USD"
+    }
+  ],
+  "watchlist": [
+    {
+      "symbol": "NBIS",
+      "market": "us"
+    },
+    {
+      "symbol": "JBL",
+      "market": "us"
+    },
+    {
+      "symbol": "AXTI",
+      "market": "us"
+    },
+    {
+      "symbol": "CRCL",
+      "market": "us"
+    },
+    {
+      "symbol": "ABSI",
+      "market": "us"
+    },
+    {
+      "symbol": "CBRS",
+      "market": "us"
+    },
+    {
+      "symbol": "HK07709",
+      "market": "hk",
+      "note": "南方两倍做多海力士"
+    }
+  ],
+  "blogger_focus": {
+    "x": [
+      {
+        "handle": "aleabitoreddit",
+        "display_name": "Serenity",
+        "focus": "半导体/HBM/AI存储产业链稀缺层分析"
+      },
+      {
+        "handle": "美研芒格君",
+        "display_name": "美研芒格君",
+        "focus": "美股宏观/科技股/价值投资视角"
+      }
+    ]
+  }
+}

@@ -2364,6 +2364,7 @@ class GeminiAnalyzer:
                 .replace("{default_skill_policy_section}", default_skill_policy_section)
                 .replace("{skills_section}", skills_section)
             )
+            base_prompt = self._append_context_awareness_instructions(base_prompt, stock_code)
         if lang == "en":
             return base_prompt + """
 
@@ -2400,6 +2401,34 @@ class GeminiAnalyzer:
         return bool(config.llm_model_list) and not all(
             e.get('model_name', '').startswith('__legacy_') for e in config.llm_model_list
         )
+
+    @staticmethod
+    def _append_context_awareness_instructions(base_prompt: str, stock_code: str) -> str:
+        """Append contextual-awareness instructions for holdings, events and influencers."""
+        instructions = """
+
+## 上下文感知与事件驱动分析要求
+
+1. **持仓成本感知**：如果上下文提供了 `portfolio_context`（含 quantity / avg_cost / has_position），
+   必须结合成本价分析当前盈亏状态，并在 `operation_advice` / `position_advice` 中给出持仓者与空仓者的差异化建议。
+
+2. **事件驱动与历史信息结合**：对于 07709 / HK07709、SK海力士相关标的，必须结合以下历史与事件信息：
+   - 2026 年 7 月 10 日 SK海力士 ADR 在纳斯达克上市（代码 SKHY），募资约 290 亿美元；
+   - 2026 年 7 月 7 日三星电子发布 Q2 初步财报，营业利润预期约 85-86 万亿韩元，同比增约 17-18 倍；
+   - 2026 年 7 月初 SK海力士取消部分 LTA 价格上限，Q3 DRAM 涨价预期约 20%；
+   - 海力士 HBM 市占率约 60%，是英伟达核心供应商；
+   - 07709 为两倍杠杆 ETF，存在每日再平衡、复利损耗与掉期成本飙升风险，不适合长期持有。
+   分析结论必须说明这些事件对当前价格的潜在影响，以及事件落地（如上市当天）可能触发的 "buy the rumor, sell the news" 风险。
+
+3. **X 博主观点专栏**：如果 `news_context` 中出现 "## X 博主观点汇总" 区块，必须：
+   - 在 `intelligence` 或 `analysis_summary` 中专门总结 Serenity、美研芒格君等博主对该标的的核心观点；
+   - 指出博主之间的共识与分歧；
+   - 当博主观点与技术面/基本面信号冲突时，明确说明并给出综合判断。
+
+4. **输出位置**：博主观点汇总应出现在 `analysis_summary` 或 `dashboard.intelligence.sentiment_summary` 中，
+   并确保对持仓/关注股票逐一覆盖。
+"""
+        return base_prompt + instructions
 
     @staticmethod
     def _legacy_router_provider_alias(model: str) -> str:
